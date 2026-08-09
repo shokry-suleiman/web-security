@@ -1,15 +1,22 @@
 import { createServer, startServer } from '#shared';
 import { readFile } from 'fs/promises';
 import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 
 import db from './database.js';
 
+const cookieSecret = 'cookie-secret';
+
 const app = createServer({ cookies: false });
-app.use(cookieParser());
+app.use(cookieParser(cookieSecret));
+
+const generateSessionId = () => {
+  return crypto.randomBytes(16).toString('hex');
+}
 
 app.get('/', (req, res) => {
   if (!req.cookies) res.send('Cookies are disabled.');
-  if (req.cookies.username) {
+  if (req.cookies.sessionId) {
     res.redirect('/profile'); 
   } else {
     res.redirect('/login');
@@ -18,8 +25,7 @@ app.get('/', (req, res) => {
 
 app.get('/login', async (req, res) => {
   const loginPage = await readFile('./pages/login.html', 'utf-8');
-
-  if (req.cookies.username) {
+  if (req.signedCookies.sessionId) {
     res.redirect('/profile');
   }
 
@@ -43,7 +49,14 @@ app.post('/login', async (req, res) => {
   );
 
   if (user) {
-    res.cookie('username', username);
+    const sessionId = generateSessionId();
+    await db.run('INSERT INTO sessions (id, username) VALUES (?, ?)', [sessionId, username]);
+    
+    res.cookie('sessionId', sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      signed: true,
+    });
     res.redirect('/profile');
   } else {
     res.status(403).redirect('/login?error=Invalid login credentials.');
@@ -51,21 +64,21 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/logout', (_, res) => {
-  res.clearCookie('username');
+  res.clearCookie('sessionId');
   res.redirect('/login');
 });
 
-// Display user profile only if the username cookie exists
+// Display user profile only if the sessionId cookie exists
 app.get('/profile', async (req, res) => {
   res.locals.title = 'Profile';
 
-  const username = req.cookies.username;
+  const sessionId = req.signedCookies.sessionId;
 
-  if (!username) {
+  if (!sessionId) {
     return res.redirect('/login?error=Please login to view your profile.');
   }
 
-  const user = await db.get('SELECT * FROM users WHERE username = ?', username);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', sessionId);
 
   if (user && user.username) {
     res.send(
