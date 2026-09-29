@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { startServer, createServer } from '#shared';
 import { db } from './database.js';
 import { currentUser } from './middleware.js';
+import { v4 as uuid } from 'uuid';
 
 const app = createServer();
 
@@ -20,12 +21,14 @@ app.get('/account', async (req, res) => {
     return res.redirect('/login?error=Please log in first.');
   }
 
+  const  { token} = await db.get('SELECT token FROM sessions WHERE userId = ?', user.id);
+  console.log(`User ${user.username} has token: ${token}`);
   const friends = await db.all(
     'SELECT id, username FROM users WHERE id != ?',
     user.id
   );
 
-  res.render('account', { title: 'Sea Surf Bank', friends, message });
+  res.render('account', { title: 'Sea Surf Bank', friends, message, token });
 });
 
 app.get('/login', (req, res) => {
@@ -47,11 +50,13 @@ app.post('/login', async (req, res) => {
   }
 
   const sessionId = crypto.randomBytes(16).toString('hex');
+  const token = uuid()   
 
   try {
-    await db.run(`INSERT INTO sessions (sessionId, userId) VALUES (?, ?)`, [
+    await db.run(`INSERT INTO sessions (sessionId, userId, token) VALUES (?, ?, ?)`, [
       sessionId,
       user.id,
+      token
     ]);
 
     res.cookie('sessionId', sessionId);
@@ -71,6 +76,12 @@ app.get('/transfer', (_, res) => {
 app.post('/transfer', async (req, res) => {
   const { user } = res.locals;
   const { amount, recipient } = req.body;
+
+  const { token } = await db.get('select token from sessions where userId = ?', user.id);
+
+  if (!token || req.body.token !== token) {
+    return res.status(403).send('Invalid CSRF token');
+  }
 
   try {
     await db.run('UPDATE users SET balance = balance - ? WHERE id = ?', [
