@@ -12,10 +12,18 @@ export const currentUser = async (req, res, next) => {
     return next();
   }
 
+  const session = await db.get('SELECT * FROM sessions WHERE sessionId = ?', [sessionId]);
+
+  if (!session) {
+    return next();
+  }
+
+  res.locals.csrfToken = session.token;
+
   /**
    * @type {import('../database.js').User | undefined}
    */
-  const user = await db.get('SELECT * FROM users WHERE id = ?', [sessionId]);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [session.userId]);
 
   if (user) {
     req.user = user;

@@ -1,6 +1,9 @@
+// @ts-nocheck
 import { startServer, createServer } from '#shared';
 
 import { db } from './database.js';
+
+import { v4 as uuid } from 'uuid';
 
 import {
   authenticate,
@@ -16,6 +19,25 @@ const app = createServer({ viewEngine: 'handlebars' });
 app.use(currentUser);
 app.use(methodOverride);
 
+/**
+ * @param {string} userId
+ */
+
+export const createSession = async (userId) => {
+  let sessionId = uuid();
+  let token = uuid();
+  await db.run('INSERT INTO sessions (sessionId, token, userId) VALUES (?, ?, ?)', [sessionId, token, userId]);
+  return sessionId; 
+};
+
+/**
+ * @param {string} sessionId 
+ */
+
+export const getSession = (sessionId) => {
+  return db.get('SELECT * FROM sessions WHERE sessionId = ?', [sessionId]);
+};
+
 app.get('/', async (req, res) => {
   const limit = req.query.limit || 50;
 
@@ -29,6 +51,7 @@ app.get('/', async (req, res) => {
 
 app.get('/login', async (req, res) => {
   res.render('login', { title: 'Login' });
+  
 });
 
 app.get('/signup', async (req, res) => {
@@ -54,7 +77,8 @@ app.post('/login', async (req, res) => {
       .render('login', { error: 'Invalid login credentials.' });
   }
 
-  res.cookie('sessionId', user.id);
+  const sessionId = await createSession(user.id);
+  res.cookie('sessionId', sessionId);
   res.redirect('/');
 });
 
@@ -81,8 +105,9 @@ app.post('/account', async (req, res) => {
     );
 
     const user = await db.get('SELECT id FROM users WHERE id = ?', [lastID]);
+    const sessionId = await createSession(user.id);
 
-    res.cookie('sessionId', user.id);
+    res.cookie('sessionId', sessionId);
     res.redirect('/');
   } catch (error) {
     console.error(error);
@@ -136,7 +161,15 @@ app.get('/posts', async (req, res) => {
 
 // Create post
 app.post('/posts', authenticate, async (req, res) => {
-  const { content } = req.body;
+  const { content, _csrf } = req.body;
+  const session = await db.get(
+    'SELECT token FROM sessions WHERE sessionId = ?',
+    [req.cookies.sessionId]
+  );
+
+  if (!_csrf || _csrf !== session?.token) {
+    return res.status(403).send({ error: 'Unauthorized' });
+  }
 
   const { lastID } = await db.run(
     'INSERT INTO posts (userId, content) VALUES (?, ?)',

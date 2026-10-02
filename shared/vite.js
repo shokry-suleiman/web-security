@@ -5,7 +5,6 @@ import tailwindcss from 'tailwindcss';
 
 import { tailwindConfig } from './tailwind.config.js';
 
-const base = join(process.cwd(), 'public');
 const shared = resolve(process.cwd(), '../..', 'shared');
 
 /**
@@ -16,7 +15,7 @@ export const vite = await createServer({
     middlewareMode: true,
   },
   appType: 'custom',
-  base,
+  base: '/',
   resolve: {
     alias: {
       '#shared': shared,
